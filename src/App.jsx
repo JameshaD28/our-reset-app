@@ -683,20 +683,7 @@ export default function App() {
       showToast("Invalid code");
       return;
     }
-    const { data: cloudRow, error: stateError } = await supabase.from("couple_state").select("data").eq("code", cleanEntry).maybeSingle();
-    if (stateError) {
-      setSyncStatus(`Sync error: ${stateError.message}`);
-      showToast("Could not load shared room");
-      return;
-    }
-    const nextData = mergeCloudData(cloudRow?.data || dataRef.current);
-    nextData.settings = { ...nextData.settings, passcode: cleanEntry, enteredPartnerCode: cleanEntry, connected: true, connectedAt: stamp() };
-    nextData.timeline = [{ id: uid("timeline"), type: "connect", title: "Partner Connected", text: "This device joined the shared couple room.", location: "", createdAt: stamp() }, ...(nextData.timeline || [])];
-    setCoupleCode(cleanEntry);
-    localStorage.setItem(CODE_KEY, cleanEntry);
-    setData(nextData);
-    await cloudSave(cleanEntry, nextData);
-
+    
     await supabase
   .from("couples")
   .update({ person_two: "Partner" })
