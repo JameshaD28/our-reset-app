@@ -27,10 +27,6 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
 
 const STORAGE_KEY = "ourResetPremiumFunctionalV5";
 const CODE_KEY = "ourResetCoupleCodeV5";
@@ -700,7 +696,7 @@ export default function App() {
     localStorage.setItem(CODE_KEY, cleanEntry);
     setData(nextData);
     await cloudSave(cleanEntry, nextData);
-    
+
     await supabase
   .from("couples")
   .update({ person_two: "Partner" })
