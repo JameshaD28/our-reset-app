@@ -3,10 +3,12 @@ import {
   CalendarDays,
   Camera,
   CheckCircle2,
+  Copy,
   Edit3,
   Gift,
   Heart,
   Home,
+  Link2,
   Lock,
   MapPin,
   Menu as MenuIcon,
@@ -14,6 +16,7 @@ import {
   Mic,
   Paperclip,
   Plus,
+  RefreshCw,
   Settings,
   Sparkles,
   Star,
@@ -24,8 +27,8 @@ import {
   X,
 } from "lucide-react";
 
-const STORAGE_KEY = "ourResetPremiumFullV3_AppOnly";
-const VAULT_PIN_KEY = "ourResetVaultPinV3";
+const STORAGE_KEY = "ourResetPremiumFunctionalV4";
+const VAULT_PIN_KEY = "ourResetVaultPinV4";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -33,6 +36,7 @@ const stamp = () => `${today()} • ${nowTime()}`;
 const uid = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const timerText = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+const generateCode = () => Math.random().toString(36).replace(/[^a-z0-9]/gi, "").slice(0, 6).toUpperCase();
 
 const defaultData = {
   people: ["Jamesha", "Justin"],
@@ -45,8 +49,30 @@ const defaultData = {
   media: [],
   timeline: [],
   plans: [
-    { id: "plan-1", title: "Blue Hour Check-In", vibe: "Calm", date: "2026-04-30", time: "8:15 PM", location: "Home", secretMemo: "Keep this soft and low-pressure.", blurMemo: true, done: false, verified: false },
-    { id: "plan-2", title: "Plan Date Night", vibe: "Romantic", date: "2026-04-30", time: "7:00 PM", location: "Pick a cozy spot", secretMemo: "Optional surprise detail", blurMemo: true, done: false, verified: false },
+    {
+      id: "plan-1",
+      title: "Blue Hour Check-In",
+      vibe: "Calm",
+      date: today(),
+      time: "8:15 PM",
+      location: "Home",
+      secretMemo: "Keep this soft and low-pressure.",
+      blurMemo: true,
+      done: false,
+      verified: false,
+    },
+    {
+      id: "plan-2",
+      title: "Plan Date Night",
+      vibe: "Romantic",
+      date: today(),
+      time: "7:00 PM",
+      location: "Pick a cozy spot",
+      secretMemo: "Optional surprise detail",
+      blurMemo: true,
+      done: false,
+      verified: false,
+    },
   ],
   memories: [],
   vault: [],
@@ -54,7 +80,14 @@ const defaultData = {
   chores: {},
   rewards: [],
   badges: ["Fresh Start"],
-  settings: { confirmLocationForRewards: true, blurredMemos: true, passcode: "" },
+  settings: {
+    confirmLocationForRewards: true,
+    blurredMemos: true,
+    passcode: "",
+    enteredPartnerCode: "",
+    connected: false,
+    connectedAt: "",
+  },
 };
 
 const moodOptions = [
@@ -85,9 +118,10 @@ const quickReplies = ["I love you", "I need a reset", "Can we talk?", "Thank you
 const reactions = ["❤️", "🥹", "😂", "🔥", "🫶"];
 
 const choreOptions = [
-  "Dishes Reset", "Trash + Quick Pickup", "Laundry Switch", "Fold Laundry", "Bedroom Reset", "Kitchen Reset", "Bathroom Wipe Down", "Sweep/Vacuum",
-  "Meal Prep", "Cook Dinner", "Pack Lunches", "Grocery List", "Grocery Run", "Kids Bath Routine", "Kids Bedtime Routine", "School Prep",
-  "Car Cleanout", "Budget Check", "Bills Check", "Pet Care", "Take Out Recycling", "Declutter Counter", "Change Sheets", "Water Plants",
+  "Dishes Reset", "Trash + Quick Pickup", "Laundry Switch", "Fold Laundry", "Bedroom Reset", "Kitchen Reset",
+  "Bathroom Wipe Down", "Sweep/Vacuum", "Meal Prep", "Cook Dinner", "Pack Lunches", "Grocery List",
+  "Grocery Run", "Kids Bath Routine", "Kids Bedtime Routine", "School Prep", "Car Cleanout", "Budget Check",
+  "Bills Check", "Pet Care", "Take Out Recycling", "Declutter Counter", "Change Sheets", "Water Plants",
   "Plan Tomorrow", "10-Minute Team Sprint", "Deep Clean Zone", "Errand Run", "Family Calendar Update", "Restock Essentials",
 ];
 
@@ -189,25 +223,36 @@ export default function App() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
 
+  const [partnerEntry, setPartnerEntry] = useState(data.settings.enteredPartnerCode || "");
+
   const currentMood = useMemo(() => moodOptions.find((mood) => mood.id === selectedMood) || moodOptions[0], [selectedMood]);
   const sortedNotes = useMemo(() => [...(data.notes || [])].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))), [data.notes]);
   const todayChores = data.chores?.[today()] || {};
   const completedChores = Object.values(todayChores).filter(Boolean).length;
   const notifications = (data.messages?.length || 0) + (data.notes?.length || 0) + (data.timeline?.length || 0);
-  const rewardCatalog = useMemo(() => rewardIdeas.map((title, index) => ({ title, cost: 20 + (index % 10) * 15 + Math.floor(index / 10) * 10, icon: ["🌹", "🍰", "🎁", "✨", "💞", "🗓️", "🏆", "🧸", "☕", "🎬"][index % 10] })), []);
+  const rewardCatalog = useMemo(
+    () => rewardIdeas.map((title, index) => ({ title, cost: 20 + (index % 10) * 15 + Math.floor(index / 10) * 10, icon: ["🌹", "🍰", "🎁", "✨", "💞", "🗓️", "🏆", "🧸", "☕", "🎬"][index % 10] })),
+    []
+  );
 
-  useEffect(() => localStorage.setItem(STORAGE_KEY, JSON.stringify(data)), [data]);
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  }, [data]);
 
   useEffect(() => {
     if (!resetRunning) return undefined;
-    if (resetSeconds <= 0) {
-      setResetRunning(false);
-      reward(10, "Reset complete. Peace points added 💗");
-      return undefined;
-    }
-    const timer = window.setTimeout(() => setResetSeconds((seconds) => seconds - 1), 1000);
-    return () => window.clearTimeout(timer);
-  }, [resetRunning, resetSeconds]);
+    const timer = setInterval(() => {
+      setResetSeconds((previous) => {
+        if (previous <= 1) {
+          clearInterval(timer);
+          setResetRunning(false);
+          return 0;
+        }
+        return previous - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resetRunning]);
 
   function updateData(updater) {
     setData((previous) => (typeof updater === "function" ? updater(previous) : { ...previous, ...updater }));
@@ -253,7 +298,11 @@ export default function App() {
     if (!noteText.trim()) return;
     const mood = loveMoods.find((item) => item.id === noteMood) || loveMoods[0];
     const note = { id: uid("note"), text: noteText.trim(), mood: mood.label, icon: mood.icon, pinned: notePinned, privacy: notePrivacy, reactions: [], createdAt: stamp() };
-    updateData((previous) => ({ ...previous, notes: [note, ...previous.notes], timeline: [{ id: uid("timeline"), type: "love", title: `${mood.icon} ${mood.label} Note`, text: note.text, location: "", createdAt: note.createdAt }, ...(previous.timeline || [])] }));
+    updateData((previous) => ({
+      ...previous,
+      notes: [note, ...previous.notes],
+      timeline: [{ id: uid("timeline"), type: "love", title: `${mood.icon} ${mood.label} Note`, text: note.text, location: "", createdAt: note.createdAt }, ...(previous.timeline || [])],
+    }));
     setNoteText("");
     setNotePinned(false);
     reward(notePinned ? 9 : 5, "Love note saved 💌");
@@ -288,8 +337,15 @@ export default function App() {
   function addPlan() {
     if (!planTitle.trim()) return;
     const plan = { id: uid("plan"), title: planTitle.trim(), vibe: planVibe, date: planDate, time: planTime, location: planLocation.trim(), secretMemo: planMemo.trim(), blurMemo: planBlur, done: false, verified: false };
-    updateData((previous) => ({ ...previous, plans: [plan, ...previous.plans], timeline: [{ id: uid("timeline"), type: "plan", title: `Plan created: ${plan.title}`, text: `${plan.date} at ${plan.time}`, location: plan.location, createdAt: stamp() }, ...(previous.timeline || [])] }));
-    setPlanTitle(""); setPlanLocation(""); setPlanMemo(""); setPlanBlur(true);
+    updateData((previous) => ({
+      ...previous,
+      plans: [plan, ...previous.plans],
+      timeline: [{ id: uid("timeline"), type: "plan", title: `Plan created: ${plan.title}`, text: `${plan.date} at ${plan.time}`, location: plan.location, createdAt: stamp() }, ...(previous.timeline || [])],
+    }));
+    setPlanTitle("");
+    setPlanLocation("");
+    setPlanMemo("");
+    setPlanBlur(true);
     reward(6, "Plan created 📅");
   }
 
@@ -316,7 +372,11 @@ export default function App() {
   function addMessage(text = messageText) {
     if (!text.trim()) return;
     const item = { id: uid("message"), sender: messageSender, text: text.trim(), createdAt: stamp() };
-    updateData((previous) => ({ ...previous, messages: [item, ...previous.messages], timeline: [{ id: uid("timeline"), type: "message", title: `${item.sender} saved a message`, text: item.text, location: "", createdAt: item.createdAt }, ...(previous.timeline || [])] }));
+    updateData((previous) => ({
+      ...previous,
+      messages: [item, ...previous.messages],
+      timeline: [{ id: uid("timeline"), type: "message", title: `${item.sender} saved a message`, text: item.text, location: "", createdAt: item.createdAt }, ...(previous.timeline || [])],
+    }));
     setMessageText("");
     reward(4, "Message saved 💬");
   }
@@ -324,7 +384,8 @@ export default function App() {
   function addManualTimeline() {
     if (!timelineText.trim()) return;
     addTimeline("moment", "Timeline Moment", timelineText.trim(), timelineLocation.trim());
-    setTimelineText(""); setTimelineLocation("");
+    setTimelineText("");
+    setTimelineLocation("");
     reward(5, "Timeline moment added 🕰️");
   }
 
@@ -365,8 +426,13 @@ export default function App() {
 
   function saveMediaItem(item) {
     const saved = { id: uid("media"), title: item.title || "Saved Media", type: item.type, src: item.src, location: item.location || "", createdAt: stamp() };
-    updateData((previous) => ({ ...previous, media: [saved, ...(previous.media || [])].slice(0, 60), timeline: [{ id: uid("timeline"), type: saved.type, title: saved.title, text: `${saved.type} saved`, location: saved.location, createdAt: saved.createdAt }, ...(previous.timeline || [])] }));
-    setMediaTitle(""); setMediaLocation("");
+    updateData((previous) => ({
+      ...previous,
+      media: [saved, ...(previous.media || [])].slice(0, 60),
+      timeline: [{ id: uid("timeline"), type: saved.type, title: saved.title, text: `${saved.type} saved`, location: saved.location, createdAt: saved.createdAt }, ...(previous.timeline || [])],
+    }));
+    setMediaTitle("");
+    setMediaLocation("");
     reward(6, `${saved.type === "voice" ? "Voice memo" : "Media"} saved ✨`);
   }
 
@@ -423,126 +489,528 @@ export default function App() {
   function claimReward(item) {
     if (data.xp < item.cost) return showToast(`${item.title} needs ${item.cost - data.xp} more XP`);
     updateData((previous) => ({ ...previous, xp: previous.xp - item.cost, rewards: [{ ...item, id: uid("reward"), createdAt: stamp() }, ...previous.rewards] }));
-    showToast(`${item.icon} ${item.title} unlocked!`);
+    showToast(`${item.title} unlocked 🎁`);
   }
 
-  function generatePasscode() {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    updateData((previous) => ({ ...previous, settings: { ...previous.settings, passcode: code } }));
-    showToast("Couple passcode generated");
+  function addGoal() {
+    if (!goalTitle.trim()) return;
+    updateData((previous) => ({ ...previous, goals: [{ id: uid("goal"), title: goalTitle.trim(), progress: 0 }, ...previous.goals] }));
+    setGoalTitle("");
+  }
+
+  function improveGoal(id) {
+    updateData((previous) => ({ ...previous, goals: previous.goals.map((goal) => (goal.id === id ? { ...goal, progress: clamp(goal.progress + 25, 0, 100) } : goal)) }));
+    reward(5, "Goal progress added ⭐");
   }
 
   function unlockVault() {
     if (vaultPin === vaultPinSaved) {
-      setVaultLocked(false); setVaultPin(""); showToast("Vault unlocked 🔒"); return;
+      setVaultLocked(false);
+      setVaultPin("");
+      showToast("Vault unlocked");
+    } else {
+      showToast("Wrong PIN");
     }
-    showToast("Wrong vault PIN");
+  }
+
+  function saveVaultNote() {
+    if (!vaultTitle.trim() && !vaultNote.trim()) return;
+    const item = { id: uid("vault"), title: vaultTitle.trim() || "Private Note", note: vaultNote.trim(), type: "note", createdAt: stamp() };
+    updateData((previous) => ({ ...previous, vault: [item, ...previous.vault] }));
+    setVaultTitle("");
+    setVaultNote("");
+    showToast("Saved to vault 🔒");
+  }
+
+  function saveVaultFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const item = { id: uid("vault"), title: vaultTitle.trim() || file.name, note: vaultNote.trim(), type: file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "audio" : "image", src: reader.result, createdAt: stamp() };
+      updateData((previous) => ({ ...previous, vault: [item, ...previous.vault] }));
+      setVaultTitle("");
+      setVaultNote("");
+      showToast("Private file saved 🔒");
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
   }
 
   function changeVaultPin() {
-    const next = window.prompt("Create a new Private Vault PIN", vaultPinSaved);
-    if (!next?.trim()) return;
-    localStorage.setItem(VAULT_PIN_KEY, next.trim());
-    setVaultPinSaved(next.trim());
+    const next = window.prompt("New vault PIN", vaultPinSaved);
+    if (!next) return;
+    localStorage.setItem(VAULT_PIN_KEY, next);
+    setVaultPinSaved(next);
     showToast("Vault PIN updated");
   }
 
-  function addVaultFiles(event) {
-    const files = Array.from(event.target.files || []);
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const type = file.type.startsWith("video") ? "video" : file.type.startsWith("audio") ? "voice" : "photo";
-        const item = { id: uid("vault"), title: vaultTitle.trim() || file.name, note: vaultNote.trim() || "A private just-us memory.", type, src: reader.result, createdAt: stamp() };
-        setData((previous) => ({ ...previous, vault: [item, ...(previous.vault || [])].slice(0, 40), xp: previous.xp + 4, bond: clamp(previous.bond + 2, 0, 100) }));
-      };
-      reader.readAsDataURL(file);
-    });
-    setVaultTitle(""); setVaultNote(""); event.target.value = ""; showToast("Private memory saved 🔒");
+  function generatePasscode() {
+    const code = generateCode();
+    updateData((previous) => ({ ...previous, settings: { ...previous.settings, passcode: code, connected: false, connectedAt: "" } }));
+    setPartnerEntry("");
+    addTimeline("settings", "Couple passcode generated", `Code ${code} created in Settings.`, "");
+    showToast("Couple passcode generated");
+  }
+
+  function copyPasscode() {
+    if (!data.settings.passcode) return showToast("Generate a code first");
+    navigator.clipboard?.writeText(data.settings.passcode);
+    showToast("Code copied");
+  }
+
+  function connectPartner() {
+    const cleanEntry = partnerEntry.trim().toUpperCase();
+    if (!cleanEntry) return showToast("Enter your partner code first");
+    if (!data.settings.passcode) return showToast("Generate your code first, then enter your partner code");
+    if (cleanEntry.length < 4) return showToast("Partner code is too short");
+    updateData((previous) => ({
+      ...previous,
+      settings: { ...previous.settings, enteredPartnerCode: cleanEntry, connected: true, connectedAt: stamp() },
+      timeline: [{ id: uid("timeline"), type: "connect", title: "Partner Connected", text: `Partner code ${cleanEntry} saved.`, location: "", createdAt: stamp() }, ...(previous.timeline || [])],
+    }));
+    reward(10, "Partner connected locally 🔗");
+  }
+
+  function disconnectPartner() {
+    updateData((previous) => ({ ...previous, settings: { ...previous.settings, enteredPartnerCode: "", connected: false, connectedAt: "" } }));
+    setPartnerEntry("");
+    showToast("Partner connection cleared");
   }
 
   function renderHome() {
     return (
-      <section className="screen home-screen">
+      <section className="screen">
         <Card className="hero-card premium-hero">
-          <div className="hero-glow"><Heart size={42} /></div>
-          <p className="eyebrow">Daily Connection</p>
-          <h2>How are you both feeling today?</h2>
-          <p className="lead">Choose the tone first. Then let the app guide one small connection moment.</p>
+          <div className="hero-glow"><Heart size={52} /></div>
+          <p className="eyebrow">Jamesha + Justin</p>
+          <h2>A softer place to reset, reconnect, and remember the good.</h2>
+          <p className="lead">Choose the mood, save the moment, plan the repair, and let the app keep your timeline organized.</p>
           <div className="mood-grid">
             {moodOptions.map((mood) => (
-              <button className={selectedMood === mood.id ? "selected" : ""} key={mood.id} onClick={() => setSelectedMood(mood.id)} type="button"><span>{mood.icon}</span><b>{mood.label}</b></button>
+              <button key={mood.id} className={selectedMood === mood.id ? "selected" : ""} onClick={() => setSelectedMood(mood.id)} type="button">
+                <span>{mood.icon}</span><b>{mood.label}</b>
+              </button>
             ))}
           </div>
+          <button className="primary" onClick={() => saveCheckIn(currentMood.action)} type="button"><Sparkles size={18} /> Save Today’s Check-In</button>
         </Card>
+
+        <div className="pulse-grid">
+          <StatCard icon="💞" label="Bond" value={`${data.bond}%`} />
+          <StatCard icon="🔥" label="Streak" value={data.streak} />
+          <StatCard icon="✨" label="XP" value={data.xp} />
+        </div>
+
         <Card className="moment-card">
-          <div><p className="eyebrow">Tonight’s Moment</p><h3>{currentMood.suggestion}</h3><p className="muted">A tiny action is easier to repeat than a big promise.</p></div>
-          <div className="button-stack"><button className="primary" onClick={() => saveCheckIn(currentMood.action)} type="button">Start Today</button><button className="ghost-button" onClick={() => go("add")} type="button">Choose another action</button></div>
+          <div>
+            <p className="eyebrow">Quick Action</p>
+            <h3>Most useful next move</h3>
+            <p className="lead">{currentMood.suggestion}</p>
+          </div>
+          <div className="button-stack">
+            <button className="primary" onClick={() => go(currentMood.action)} type="button">Open Tool</button>
+            <button className="ghost-button" onClick={() => setPromptIndex((promptIndex + 1) % lovePrompts.length)} type="button">New Prompt</button>
+          </div>
         </Card>
-        <section className="pulse-grid"><StatCard icon="💞" label="Bond" value={`${data.bond}%`} /><StatCard icon="🔥" label="Streak" value={data.streak} /><StatCard icon="✨" label="XP" value={data.xp} /></section>
-        <Card className="quick-card">
-          <div className="section-head compact"><div><p className="eyebrow">Quick Actions</p><h3>Most useful right now</h3></div><Sparkles /></div>
-          <div className="quick-grid"><button onClick={() => go("love")} type="button">💌 <b>Love Note</b><span>Send something soft</span></button><button onClick={() => go("plans")} type="button">📅 <b>Plan Moment</b><span>Create quality time</span></button><button onClick={() => go("vault")} type="button">🔒 <b>Private Memory</b><span>Save photos/videos</span></button></div>
+
+        <Card>
+          <div className="section-head compact"><div><p className="eyebrow">Fast Menu</p><h3>Jump in</h3></div><Sparkles /></div>
+          <div className="quick-grid">
+            <button onClick={() => go("love")} type="button"><Heart /> <b>1. Love Note</b><span>Save something soft.</span></button>
+            <button onClick={() => go("plans")} type="button"><CalendarDays /> <b>2. Plans</b><span>Add dates, location, and memos.</span></button>
+            <button onClick={() => go("settings")} type="button"><Link2 /> <b>3. Connect</b><span>Generate or enter partner code.</span></button>
+          </div>
         </Card>
       </section>
     );
   }
 
   function renderAdd() {
-    return <section className="screen"><Card className="add-card"><p className="eyebrow">Create</p><h2>Add Something</h2><p className="lead">No duplicate reward/plans clutter here. Add messages, media, timeline moments, repair tools, chores, or private vault memories.</p><div className="feature-grid upgraded-add-grid">{addActions.map((action) => <button key={action.id} onClick={() => go(action.id)} type="button"><span className="feature-icon">{action.icon}</span><b>{action.title}</b><small>{action.subtitle}</small></button>)}</div></Card></section>;
+    return (
+      <section className="screen">
+        <Card>
+          <p className="eyebrow">Add</p>
+          <h2>Add memories, messages, media, or repair tools.</h2>
+          <p className="lead">Plans Moment was removed from this tab. Plans now live in the Plans screen, and messages live in Messages.</p>
+          <div className="feature-grid upgraded-add-grid">
+            {addActions.map((action) => (
+              <button key={action.id} onClick={() => go(action.id)} type="button">
+                <span className="feature-icon">{action.icon}</span>
+                <b>{action.title}</b>
+                <small>{action.subtitle}</small>
+              </button>
+            ))}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderLove() {
-    return <section className="screen two-column love-layout"><Card className="love-compose"><p className="eyebrow">Love Wall</p><h2>Write a love note</h2><div className="prompt-box"><div><b>Prompt</b><p>{lovePrompts[promptIndex]}</p></div><button onClick={() => setPromptIndex((index) => (index + 1) % lovePrompts.length)} type="button">New Prompt</button></div><div className="mood-row">{loveMoods.map((mood) => <button key={mood.id} className={noteMood === mood.id ? "active" : ""} onClick={() => setNoteMood(mood.id)} type="button">{mood.icon} {mood.label}</button>)}</div><textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Write something soft, honest, flirty, or healing..." /><details className="options-panel"><summary>Note options</summary><div className="options-grid"><label><input type="checkbox" checked={notePinned} onChange={(event) => setNotePinned(event.target.checked)} /> Pin this note</label><select value={notePrivacy} onChange={(event) => setNotePrivacy(event.target.value)}><option value="shared">Shared note</option><option value="private">Private reflection</option></select></div></details><button className="primary" onClick={addNote} type="button">Save Love Note</button></Card><Card><div className="section-head compact"><div><p className="eyebrow">Saved</p><h3>Love Notes</h3></div><Heart /></div><div className="list">{sortedNotes.length ? sortedNotes.map((note) => <div className={`item love-note ${note.pinned ? "pinned" : ""}`} key={note.id}><div className="item-title-row"><b>{note.pinned ? "📌 " : ""}{note.icon} {note.mood}</b><small>{note.privacy}</small></div><p>{note.text}</p><small>{note.createdAt}</small><div className="reaction-row">{reactions.map((reaction) => <button key={reaction} className={note.reactions?.includes(reaction) ? "active" : ""} onClick={() => reactToNote(note.id, reaction)} type="button">{reaction}</button>)}</div><div className="item-actions"><button onClick={() => togglePinNote(note.id)} type="button"><Star size={16} /> {note.pinned ? "Unpin" : "Pin"}</button><button onClick={() => editInList("notes", note.id, "text", "Edit love note")} type="button"><Edit3 size={16} /> Edit</button><button onClick={() => deleteFromList("notes", note.id)} type="button"><Trash2 size={16} /> Delete</button></div></div>) : <Empty>No love notes yet. Try the prompt.</Empty>}</div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <div className="prompt-box">
+            <div><p className="eyebrow">Prompt</p><p>{lovePrompts[promptIndex]}</p></div>
+            <button className="ghost-button" onClick={() => setPromptIndex((promptIndex + 1) % lovePrompts.length)} type="button"><RefreshCw size={16} /> New</button>
+          </div>
+          <p className="eyebrow">Love Note</p>
+          <h2>Write something worth keeping.</h2>
+          <div className="mood-row">
+            {loveMoods.map((mood) => <button key={mood.id} className={noteMood === mood.id ? "active" : ""} onClick={() => setNoteMood(mood.id)} type="button">{mood.icon} {mood.label}</button>)}
+          </div>
+          <textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="Type your note..." />
+          <details className="options-panel">
+            <summary>Options</summary>
+            <div className="options-grid">
+              <label><input type="checkbox" checked={notePinned} onChange={(event) => setNotePinned(event.target.checked)} /> Pin this note</label>
+              <label><input type="checkbox" checked={notePrivacy === "private"} onChange={(event) => setNotePrivacy(event.target.checked ? "private" : "shared")} /> Mark private</label>
+            </div>
+          </details>
+          <button className="primary" onClick={addNote} type="button"><Heart size={18} /> Save Love Note</button>
+        </Card>
+
+        <Card>
+          <div className="section-head compact"><div><p className="eyebrow">Saved</p><h3>Love Notes</h3></div><Heart /></div>
+          <div className="list">
+            {sortedNotes.length ? sortedNotes.map((note) => (
+              <div key={note.id} className={`item love-note ${note.pinned ? "pinned" : ""}`}>
+                <div className="item-title-row"><b>{note.icon} {note.mood}</b><small>{note.createdAt}</small></div>
+                <p>{note.text}</p>
+                <small>{note.privacy === "private" ? "Private" : "Shared"}</small>
+                <div className="reaction-row">{reactions.map((reaction) => <button key={reaction} className={note.reactions?.includes(reaction) ? "active" : ""} onClick={() => reactToNote(note.id, reaction)} type="button">{reaction}</button>)}</div>
+                <div className="item-actions">
+                  <button onClick={() => togglePinNote(note.id)} type="button"><Star size={15} /> {note.pinned ? "Unpin" : "Pin"}</button>
+                  <button onClick={() => editInList("notes", note.id, "text", "Edit note")} type="button"><Edit3 size={15} /> Edit</button>
+                  <button onClick={() => deleteFromList("notes", note.id)} type="button"><Trash2 size={15} /> Delete</button>
+                </div>
+              </div>
+            )) : <Empty>No love notes yet.</Empty>}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderPlans() {
-    return <section className="screen two-column"><Card><p className="eyebrow">Calendar</p><h2>Plan a moment</h2><input value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder="Plan title" /><div className="form-row"><input type="date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} /><input value={planTime} onChange={(event) => setPlanTime(event.target.value)} placeholder="7:00 PM" /></div><div className="form-row"><select value={planVibe} onChange={(event) => setPlanVibe(event.target.value)}><option>Romantic</option><option>Calm</option><option>Fun</option><option>Repair</option><option>Adventure</option><option>Family</option></select><input value={planLocation} onChange={(event) => setPlanLocation(event.target.value)} placeholder="Location optional" /></div><button className="ghost-button inline" onClick={() => useCurrentLocation(setPlanLocation)} type="button"><MapPin size={16} /> Use current location</button><textarea value={planMemo} onChange={(event) => setPlanMemo(event.target.value)} placeholder="Secret date memo optional..." /><label className="soft-check"><input type="checkbox" checked={planBlur} onChange={(event) => setPlanBlur(event.target.checked)} /> Blur secret memo until tapped</label><button className="primary" onClick={addPlan} type="button">Add Plan</button></Card><Card><div className="section-head compact"><div><p className="eyebrow">Upcoming</p><h3>Plans</h3></div><CalendarDays /></div><div className="list">{data.plans.map((plan) => <div className={`item ${plan.done ? "done" : ""}`} key={plan.id}><b>{plan.vibe === "Romantic" ? "💕" : plan.vibe === "Calm" ? "🧘🏽‍♀️" : plan.vibe === "Fun" ? "🎉" : plan.vibe === "Repair" ? "🕊️" : "📍"} {plan.title}</b><p>{plan.date} • {plan.time}</p>{plan.location && <small><MapPin size={13} /> {plan.location}</small>}{plan.secretMemo && <p className={plan.blurMemo ? "blur-memo" : ""} title="Tap/hover to reveal">{plan.secretMemo}</p>}<small>{plan.verified ? "📍 Follow-through verified" : "+25 XP when location follow-through is confirmed"}</small><div className="item-actions"><button onClick={() => completePlan(plan, false)} type="button"><CheckCircle2 size={16} /> Done</button><button onClick={() => completePlan(plan, true)} type="button"><MapPin size={16} /> Confirm Location</button><button onClick={() => editPlan(plan)} type="button"><Edit3 size={16} /> Edit</button><button onClick={() => deleteFromList("plans", plan.id)} type="button"><Trash2 size={16} /> Delete</button></div></div>)}</div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <p className="eyebrow">Plans</p>
+          <h2>Plan dates with location and optional secret memos.</h2>
+          <input value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder="Plan title" />
+          <div className="form-row">
+            <input type="date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} />
+            <input value={planTime} onChange={(event) => setPlanTime(event.target.value)} placeholder="Time" />
+          </div>
+          <div className="form-row">
+            <select value={planVibe} onChange={(event) => setPlanVibe(event.target.value)}><option>Romantic</option><option>Calm</option><option>Fun</option><option>Repair</option><option>Family</option></select>
+            <div className="location-row"><input value={planLocation} onChange={(event) => setPlanLocation(event.target.value)} placeholder="Location" /><button className="ghost-button" onClick={() => useCurrentLocation(setPlanLocation)} type="button"><MapPin size={16} /> Use GPS</button></div>
+          </div>
+          <textarea value={planMemo} onChange={(event) => setPlanMemo(event.target.value)} placeholder="Secret memo (optional)" />
+          <label className="soft-check"><input type="checkbox" checked={planBlur} onChange={(event) => setPlanBlur(event.target.checked)} /> Blur memo until tapped/hovered</label>
+          <button className="primary" onClick={addPlan} type="button"><CalendarDays size={18} /> Save Plan</button>
+        </Card>
+
+        <Card>
+          <div className="section-head compact"><div><p className="eyebrow">Upcoming</p><h3>Plans</h3></div><CalendarDays /></div>
+          <div className="list">
+            {data.plans.length ? data.plans.map((plan) => (
+              <div key={plan.id} className={`item ${plan.done ? "done" : ""}`}>
+                <div className="item-title-row"><b>{plan.title}</b><small>{plan.date} • {plan.time}</small></div>
+                <small><MapPin size={14} /> {plan.location || "No location yet"}</small>
+                {plan.secretMemo && <p className={plan.blurMemo && data.settings.blurredMemos ? "blur-memo" : ""}>{plan.secretMemo}</p>}
+                <small>{plan.vibe}{plan.verified ? " • Location verified" : ""}</small>
+                <div className="item-actions">
+                  <button onClick={() => completePlan(plan, false)} type="button"><CheckCircle2 size={15} /> Done</button>
+                  <button onClick={() => completePlan(plan, true)} type="button"><MapPin size={15} /> Confirm Location</button>
+                  <button onClick={() => editPlan(plan)} type="button"><Edit3 size={15} /> Edit</button>
+                  <button onClick={() => deleteFromList("plans", plan.id)} type="button"><Trash2 size={15} /> Delete</button>
+                </div>
+              </div>
+            )) : <Empty>No plans yet.</Empty>}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderMessages() {
-    return <section className="screen two-column"><Card><p className="eyebrow">Messages</p><h2>Date-stamped message</h2><select value={messageSender} onChange={(event) => setMessageSender(event.target.value)}>{data.people.map((person) => <option key={person}>{person}</option>)}</select><textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Write a message..." /><button className="primary" onClick={() => addMessage()} type="button">Save Message</button><div className="chips">{quickReplies.map((reply) => <button key={reply} onClick={() => addMessage(reply)} type="button">{reply}</button>)}</div></Card><Card><div className="section-head compact"><div><p className="eyebrow">Saved</p><h3>Messages</h3></div><MessageCircle /></div><div className="list">{data.messages.length ? data.messages.map((message) => <div className="item" key={message.id}><b>{message.sender}</b><p>{message.text}</p><small>{message.createdAt}</small><div className="item-actions"><button onClick={() => editInList("messages", message.id, "text", "Edit message")} type="button"><Edit3 size={16} /> Edit</button><button onClick={() => deleteFromList("messages", message.id)} type="button"><Trash2 size={16} /> Delete</button></div></div>) : <Empty>No messages yet.</Empty>}</div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <p className="eyebrow">Messages</p>
+          <h2>Date and time stamped messages.</h2>
+          <select value={messageSender} onChange={(event) => setMessageSender(event.target.value)}>{data.people.map((person) => <option key={person}>{person}</option>)}</select>
+          <textarea value={messageText} onChange={(event) => setMessageText(event.target.value)} placeholder="Write a message..." />
+          <button className="primary" onClick={() => addMessage()} type="button"><MessageCircle size={18} /> Save Message</button>
+          <div className="chips">{quickReplies.map((reply) => <button key={reply} onClick={() => addMessage(reply)} type="button">{reply}</button>)}</div>
+        </Card>
+        <Card>
+          <div className="section-head compact"><div><p className="eyebrow">Saved</p><h3>Messages</h3></div><MessageCircle /></div>
+          <div className="list">
+            {data.messages.length ? data.messages.map((message) => (
+              <div key={message.id} className="item">
+                <div className="item-title-row"><b>{message.sender}</b><small>{message.createdAt}</small></div>
+                <p>{message.text}</p>
+                <div className="item-actions"><button onClick={() => editInList("messages", message.id, "text", "Edit message")} type="button"><Edit3 size={15} /> Edit</button><button onClick={() => deleteFromList("messages", message.id)} type="button"><Trash2 size={15} /> Delete</button></div>
+              </div>
+            )) : <Empty>No messages yet.</Empty>}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderMedia() {
-    return <section className="screen two-column"><Card><p className="eyebrow">Capture</p><h2>Voice memos, videos & pictures</h2><input value={mediaTitle} onChange={(event) => setMediaTitle(event.target.value)} placeholder="Title optional" /><div className="form-row"><input value={mediaLocation} onChange={(event) => setMediaLocation(event.target.value)} placeholder="Location optional" /><button className="ghost-button inline" onClick={() => useCurrentLocation(setMediaLocation)} type="button"><MapPin size={16} /> Location</button></div><div className="media-actions"><button className={recording ? "danger" : "primary"} onClick={recording ? stopVoiceMemo : startVoiceMemo} type="button"><Mic size={18} /> {recording ? "Stop Recording" : "Start Voice Memo"}</button><label className="upload-pill"><Camera size={18} /> Add Pictures<input type="file" accept="image/*" multiple onChange={addMediaFiles} /></label><label className="upload-pill"><Video size={18} /> Add Videos<input type="file" accept="video/*" multiple onChange={addMediaFiles} /></label></div></Card><Card><div className="section-head compact"><div><p className="eyebrow">Saved</p><h3>Media</h3></div><Paperclip /></div><div className="vault-grid">{data.media?.length ? data.media.map((item) => <div className="vault-item" key={item.id}><div className="vault-media">{item.type === "video" ? <video controls src={item.src} /> : item.type === "voice" ? <audio controls src={item.src} /> : <img alt={item.title} src={item.src} />}</div><b>{item.title}</b>{item.location && <small>📍 {item.location}</small>}<small>{item.createdAt}</small><button onClick={() => deleteFromList("media", item.id)} type="button"><Trash2 size={16} /> Delete</button></div>) : <Empty>No media saved yet.</Empty>}</div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <p className="eyebrow">Media</p>
+          <h2>Voice memos, videos, and pictures.</h2>
+          <input value={mediaTitle} onChange={(event) => setMediaTitle(event.target.value)} placeholder="Title" />
+          <div className="location-row"><input value={mediaLocation} onChange={(event) => setMediaLocation(event.target.value)} placeholder="Location" /><button className="ghost-button" onClick={() => useCurrentLocation(setMediaLocation)} type="button"><MapPin size={16} /> GPS</button></div>
+          <div className="media-actions">
+            {!recording ? <button className="primary" onClick={startVoiceMemo} type="button"><Mic size={18} /> Start Voice Memo</button> : <button className="danger" onClick={stopVoiceMemo} type="button"><Mic size={18} /> Stop Recording</button>}
+            <label className="upload-pill"><Paperclip size={18} /> Upload Pictures or Videos<input type="file" accept="image/*,video/*" multiple onChange={addMediaFiles} /></label>
+          </div>
+        </Card>
+        <Card>
+          <div className="section-head compact"><div><p className="eyebrow">Saved</p><h3>Media</h3></div><Camera /></div>
+          <div className="list">
+            {data.media.length ? data.media.map((item) => (
+              <div key={item.id} className="item">
+                <b>{item.type === "voice" ? "🎙️" : item.type === "video" ? "🎥" : "🖼️"} {item.title}</b>
+                <small>{item.createdAt} {item.location ? `• ${item.location}` : ""}</small>
+                {item.type === "voice" && <audio controls src={item.src} />}
+                {item.type === "video" && <video controls src={item.src} />}
+                {item.type === "picture" && <img alt={item.title} src={item.src} />}
+                <div className="item-actions"><button onClick={() => editInList("media", item.id, "title", "Edit media title")} type="button"><Edit3 size={15} /> Edit</button><button onClick={() => deleteFromList("media", item.id)} type="button"><Trash2 size={15} /> Delete</button></div>
+              </div>
+            )) : <Empty>No media yet.</Empty>}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderTimeline() {
-    return <section className="screen two-column"><Card><p className="eyebrow">Automatic Timeline</p><h2>Add location moment</h2><textarea value={timelineText} onChange={(event) => setTimelineText(event.target.value)} placeholder="What happened?" /><div className="form-row"><input value={timelineLocation} onChange={(event) => setTimelineLocation(event.target.value)} placeholder="Location optional" /><button className="ghost-button inline" onClick={() => useCurrentLocation(setTimelineLocation)} type="button"><MapPin size={16} /> Location</button></div><button className="primary" onClick={addManualTimeline} type="button">Add to Timeline</button></Card><Card><div className="section-head compact"><div><p className="eyebrow">History</p><h3>Timeline</h3></div><CalendarDays /></div><div className="timeline-list">{data.timeline?.length ? data.timeline.map((item) => <div className="timeline-item" key={item.id}><span className="dot" /><div><b>{item.title}</b><p>{item.text}</p>{item.location && <small>📍 {item.location}</small>}<small>{item.createdAt}</small><div className="item-actions"><button onClick={() => editInList("timeline", item.id, "text", "Edit timeline item")} type="button"><Edit3 size={16} /> Edit</button><button onClick={() => deleteFromList("timeline", item.id)} type="button"><Trash2 size={16} /> Delete</button></div></div></div>) : <Empty>Your automatic timeline starts when you add notes, media, plans, messages, or repairs.</Empty>}</div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <p className="eyebrow">Timeline</p>
+          <h2>Automatic timeline with date, time, and location.</h2>
+          <textarea value={timelineText} onChange={(event) => setTimelineText(event.target.value)} placeholder="Add a timeline moment manually..." />
+          <div className="location-row"><input value={timelineLocation} onChange={(event) => setTimelineLocation(event.target.value)} placeholder="Location" /><button className="ghost-button" onClick={() => useCurrentLocation(setTimelineLocation)} type="button"><MapPin size={16} /> GPS</button></div>
+          <button className="primary" onClick={addManualTimeline} type="button"><CalendarDays size={18} /> Add Timeline Moment</button>
+        </Card>
+        <Card>
+          <div className="section-head compact"><div><p className="eyebrow">Live History</p><h3>Timeline</h3></div><CalendarDays /></div>
+          <div className="timeline-list">
+            {data.timeline.length ? data.timeline.map((item) => (
+              <div key={item.id} className="timeline-item">
+                <span className="dot" />
+                <div><b>{item.title}</b><p>{item.text}</p><small>{item.createdAt}{item.location ? ` • ${item.location}` : ""}</small><div className="item-actions"><button onClick={() => editInList("timeline", item.id, "text", "Edit timeline text")} type="button"><Edit3 size={15} /> Edit</button><button onClick={() => deleteFromList("timeline", item.id)} type="button"><Trash2 size={15} /> Delete</button></div></div>
+              </div>
+            )) : <Empty>Your timeline will build automatically as you save things.</Empty>}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderCoach() {
-    return <section className="screen two-column"><Card className="coach-card"><Wand2 size={42} /><p className="eyebrow">SUPER AI</p><h2>Coach Mode</h2><p className="lead">A deeper, more useful response for arguments, distance, trust, chores, and repair moments.</p><textarea value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder="Example: We argued about chores and now it feels tense..." /><button className="primary" onClick={coachTip} type="button">Get SUPER AI Step</button></Card><Card><p className="eyebrow">Recommended</p><h3>Next move</h3><div className="coach-reply">{coachReply}</div><div className="chips"><button onClick={() => go("conflict")} type="button">Open Conflict Resolution</button><button onClick={() => go("messages")} type="button">Save as Message</button><button onClick={() => go("plans")} type="button">Plan Repair Moment</button></div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card className="coach-card">
+          <Wand2 size={44} />
+          <p className="eyebrow">SUPER AI Coach</p>
+          <h2>Get a softer next step.</h2>
+          <textarea value={coachInput} onChange={(event) => setCoachInput(event.target.value)} placeholder="Example: We are arguing about chores and I feel unappreciated..." />
+          <button className="primary" onClick={coachTip} type="button"><Wand2 size={18} /> Generate SUPER AI Response</button>
+        </Card>
+        <Card><p className="eyebrow">Guidance</p><div className="coach-reply">{coachReply}</div></Card>
+      </section>
+    );
   }
 
   function renderConflict() {
-    const steps = ["Pause", "Issue", "Feeling", "Need", "Agreement"];
-    return <section className="screen two-column"><Card className="reset-card"><div className="reset-icon"><Heart size={38} /></div><p className="eyebrow">Conflict Resolution</p><h2>Functional repair flow</h2><p className="lead">Pause first, then move through the repair steps without turning it into a blame cycle.</p><button className="reset-button" onClick={beginReset} type="button">Start 60-Second Reset</button><div className="timer-panel"><div className="timer">{timerText(resetSeconds)}</div><div className="reset-actions"><button onClick={() => setResetRunning((run) => !run)} type="button">{resetRunning ? "Pause Timer" : "Resume Timer"}</button><button onClick={() => { setResetSeconds(600); setResetRunning(true); }} type="button">Need 10 More Mins</button></div></div></Card><Card><div className="section-head compact"><div><p className="eyebrow">Repair Steps</p><h3>{steps[conflictStep]}</h3></div><Sparkles /></div><div className="step-dots">{steps.map((step, index) => <button key={step} className={conflictStep === index ? "active" : ""} onClick={() => setConflictStep(index)} type="button">{index + 1}</button>)}</div>{conflictStep === 0 && <p className="lead">Start by lowering the temperature. No interrupting, no proving, no sarcasm. The goal is repair.</p>}{conflictStep === 1 && <textarea value={conflictNotes.issue} onChange={(event) => setConflictNotes({ ...conflictNotes, issue: event.target.value })} placeholder="What is the issue without attacking the person?" />}{conflictStep === 2 && <textarea value={conflictNotes.feeling} onChange={(event) => setConflictNotes({ ...conflictNotes, feeling: event.target.value })} placeholder="I feel..." />}{conflictStep === 3 && <textarea value={conflictNotes.need} onChange={(event) => setConflictNotes({ ...conflictNotes, need: event.target.value })} placeholder="What do you need going forward?" />}{conflictStep === 4 && <textarea value={conflictNotes.agreement} onChange={(event) => setConflictNotes({ ...conflictNotes, agreement: event.target.value })} placeholder="What are we agreeing to try?" />}<div className="item-actions"><button onClick={() => setConflictStep((step) => clamp(step - 1, 0, 4))} type="button">Back</button><button onClick={() => setConflictStep((step) => clamp(step + 1, 0, 4))} type="button">Next</button><button onClick={saveConflictAgreement} type="button"><CheckCircle2 size={16} /> Save Repair</button></div></Card></section>;
+    const steps = ["Pause", "Feeling", "Need", "Agreement"];
+    return (
+      <section className="screen two-column">
+        <Card className="reset-card">
+          <div className="reset-icon"><Heart size={48} /></div>
+          <p className="eyebrow">Conflict Resolution</p>
+          <h2>A real repair flow that saves the agreement.</h2>
+          <button className="reset-button" onClick={beginReset} type="button">Start Reset</button>
+          {conflictStep > 0 && <div className="timer-panel"><div className="timer">{timerText(resetSeconds)}</div><p>Breathe first. Then move through the steps.</p></div>}
+        </Card>
+        <Card>
+          <div className="step-dots">{steps.map((step, index) => <button key={step} className={conflictStep === index + 1 ? "active" : ""} onClick={() => setConflictStep(index + 1)} type="button">{index + 1}</button>)}</div>
+          <p className="eyebrow">Repair notes</p>
+          <textarea value={conflictNotes.issue} onChange={(event) => setConflictNotes({ ...conflictNotes, issue: event.target.value })} placeholder="What is the issue?" />
+          <textarea value={conflictNotes.feeling} onChange={(event) => setConflictNotes({ ...conflictNotes, feeling: event.target.value })} placeholder="What feeling needs to be heard?" />
+          <textarea value={conflictNotes.need} onChange={(event) => setConflictNotes({ ...conflictNotes, need: event.target.value })} placeholder="What do you need next?" />
+          <textarea value={conflictNotes.agreement} onChange={(event) => setConflictNotes({ ...conflictNotes, agreement: event.target.value })} placeholder="What agreement are you making?" />
+          <button className="primary" onClick={saveConflictAgreement} type="button"><CheckCircle2 size={18} /> Save Repair Agreement</button>
+        </Card>
+      </section>
+    );
   }
 
   function renderChores() {
-    return <section className="screen two-column"><Card><p className="eyebrow">Team Chores</p><h2>Today’s teamwork</h2><p className="lead">{completedChores} completed today. Each completed chore adds XP and a timeline proof point.</p><div className="progress-line"><i style={{ width: `${clamp((completedChores / choreOptions.length) * 100, 0, 100)}%` }} /></div></Card><Card><div className="chores-grid">{choreOptions.map((chore) => <button key={chore} className={`chore-button ${todayChores[chore] ? "done" : ""}`} onClick={() => toggleChore(chore)} type="button">{todayChores[chore] ? "✅" : "◻️"} {chore}</button>)}</div></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <p className="eyebrow">Team Chores</p>
+          <h2>More options for a true team reset.</h2>
+          <p className="lead">Completed today: {completedChores}/{choreOptions.length}</p>
+          <div className="progress-line"><i style={{ width: `${(completedChores / choreOptions.length) * 100}%` }} /></div>
+        </Card>
+        <Card>
+          <div className="chores-grid">
+            {choreOptions.map((chore) => <button key={chore} className={`chore-button ${todayChores[chore] ? "done" : ""}`} onClick={() => toggleChore(chore)} type="button">{todayChores[chore] ? "✅" : "⬜"} {chore}</button>)}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderVault() {
-    if (vaultLocked) return <section className="screen"><Card className="vault-card"><Lock size={46} /><p className="eyebrow">Private Vault</p><h2>Enter vault PIN</h2><input value={vaultPin} onChange={(event) => setVaultPin(event.target.value)} placeholder="PIN" type="password" /><div className="item-actions centered-actions"><button className="primary" onClick={unlockVault} type="button">Unlock</button><button onClick={changeVaultPin} type="button">Change PIN</button></div><small>Default PIN is 1234 until changed.</small></Card></section>;
-    return <section className="screen two-column"><Card><p className="eyebrow">Vault</p><h2>Save private memory</h2><input value={vaultTitle} onChange={(event) => setVaultTitle(event.target.value)} placeholder="Title optional" /><textarea value={vaultNote} onChange={(event) => setVaultNote(event.target.value)} placeholder="Private note optional" /><label className="upload-tile"><Lock /><b>Add photos, videos, or voice files</b><span>Saved locally in this browser</span><input type="file" accept="image/*,video/*,audio/*" multiple onChange={addVaultFiles} /></label><button className="ghost-button" onClick={() => setVaultLocked(true)} type="button">Lock Vault</button></Card><Card><div className="vault-grid">{data.vault?.length ? data.vault.map((item) => <div className="vault-item" key={item.id}><div className="vault-media">{item.type === "video" ? <video controls src={item.src} /> : item.type === "voice" ? <audio controls src={item.src} /> : <img alt={item.title} src={item.src} />}</div><b>{item.title}</b><p>{item.note}</p><small>{item.createdAt}</small><button onClick={() => deleteFromList("vault", item.id)} type="button"><Trash2 size={16} /> Delete</button></div>) : <Empty>No vault items yet.</Empty>}</div></Card></section>;
+    if (vaultLocked) {
+      return (
+        <section className="screen"><Card className="vault-card"><Lock size={54} /><p className="eyebrow">Private Vault</p><h2>Enter PIN to unlock.</h2><input value={vaultPin} onChange={(event) => setVaultPin(event.target.value)} placeholder="PIN" type="password" /><button className="primary" onClick={unlockVault} type="button">Unlock Vault</button><button className="ghost-button" onClick={changeVaultPin} type="button">Change PIN</button><p className="muted">Default PIN is 1234 unless you changed it.</p></Card></section>
+      );
+    }
+    return (
+      <section className="screen two-column">
+        <Card>
+          <p className="eyebrow">Vault</p><h2>Private memories.</h2>
+          <input value={vaultTitle} onChange={(event) => setVaultTitle(event.target.value)} placeholder="Title" />
+          <textarea value={vaultNote} onChange={(event) => setVaultNote(event.target.value)} placeholder="Private note" />
+          <div className="item-actions centered-actions"><button className="primary" onClick={saveVaultNote} type="button">Save Note</button><label className="upload-pill"><Paperclip size={18} /> Save File<input type="file" accept="image/*,video/*,audio/*" onChange={saveVaultFile} /></label><button className="ghost-button" onClick={() => setVaultLocked(true)} type="button">Lock</button></div>
+        </Card>
+        <Card>
+          <div className="vault-grid">
+            {data.vault.length ? data.vault.map((item) => <div key={item.id} className="vault-item"><b>{item.title}</b><small>{item.createdAt}</small>{item.note && <p>{item.note}</p>}<div className="vault-media">{item.type === "image" && <img alt={item.title} src={item.src} />}{item.type === "video" && <video controls src={item.src} />}{item.type === "audio" && <audio controls src={item.src} />}{item.type === "note" && <Lock />}</div><button onClick={() => deleteFromList("vault", item.id)} type="button"><Trash2 size={15} /> Delete</button></div>) : <Empty>No private items yet.</Empty>}
+          </div>
+        </Card>
+      </section>
+    );
   }
 
   function renderProfile() {
-    return <section className="screen"><Card><div className="section-head compact"><div><p className="eyebrow">Profile</p><h2>Progress & Rewards</h2></div><User /></div><section className="profile-grid"><div><b>{data.bond}%</b><span>Bond</span></div><div><b>{data.streak}</b><span>Streak</span></div><div><b>{data.xp}</b><span>XP</span></div></section></Card><Card><p className="eyebrow">Goals</p><div className="form-row"><input value={goalTitle} onChange={(event) => setGoalTitle(event.target.value)} placeholder="New goal" /><button className="primary" onClick={() => { if (!goalTitle.trim()) return; updateData((previous) => ({ ...previous, goals: [{ id: uid("goal"), title: goalTitle.trim(), progress: 0 }, ...previous.goals] })); setGoalTitle(""); reward(3, "Goal added ⭐"); }} type="button">Add Goal</button></div><div className="list">{data.goals.map((goal) => <div className="item" key={goal.id}><b>{goal.title}</b><div className="progress-line"><i style={{ width: `${goal.progress}%` }} /></div><small>{goal.progress}%</small><div className="item-actions"><button onClick={() => { const next = Number(window.prompt("Progress 0-100", String(goal.progress))); if (!Number.isNaN(next)) updateData((previous) => ({ ...previous, goals: previous.goals.map((item) => item.id === goal.id ? { ...item, progress: clamp(next, 0, 100) } : item) })); }} type="button"><Edit3 size={16} /> Edit</button><button onClick={() => deleteFromList("goals", goal.id)} type="button"><Trash2 size={16} /> Delete</button></div></div>)}</div></Card><Card><div className="section-head compact"><div><p className="eyebrow">Live Rewards</p><h3>100 reward ideas</h3></div><Gift /></div><p className="muted">Couples earn more points when a planned date is completed and the location is confirmed.</p><div className="reward-grid">{rewardCatalog.map((item) => <button className="reward-button" key={item.title} onClick={() => claimReward(item)} type="button"><span>{item.icon} {item.title}</span><b>{item.cost} XP</b></button>)}</div></Card></section>;
+    return (
+      <section className="screen">
+        <Card>
+          <p className="eyebrow">Profile</p><h2>Rewards, stats, and progress.</h2>
+          <div className="profile-grid">
+            <div><b>{data.xp}</b><span>XP</span></div>
+            <div><b>{data.bond}%</b><span>Bond</span></div>
+            <div><b>{data.streak}</b><span>Streak</span></div>
+          </div>
+        </Card>
+        <section className="two-column">
+          <Card><div className="section-head compact"><div><p className="eyebrow">Rewards</p><h3>Reward Shop</h3></div><Gift /></div><div className="reward-grid">{rewardCatalog.map((item) => <button key={item.title} className="reward-button" onClick={() => claimReward(item)} type="button"><span>{item.icon} {item.title}</span><b>{item.cost} XP</b></button>)}</div></Card>
+          <Card><p className="eyebrow">Goals</p><input value={goalTitle} onChange={(event) => setGoalTitle(event.target.value)} placeholder="New goal" /><button className="primary" onClick={addGoal} type="button">Add Goal</button><div className="list">{data.goals.map((goal) => <div key={goal.id} className="item"><b>{goal.title}</b><div className="progress-line"><i style={{ width: `${goal.progress}%` }} /></div><small>{goal.progress}%</small><div className="item-actions"><button onClick={() => improveGoal(goal.id)} type="button"><Star size={15} /> +25%</button><button onClick={() => deleteFromList("goals", goal.id)} type="button"><Trash2 size={15} /> Delete</button></div></div>)}</div></Card>
+        </section>
+      </section>
+    );
   }
 
   function renderSettings() {
-    return <section className="screen two-column"><Card><Settings size={42} /><p className="eyebrow">Settings</p><h2>Couple connection</h2><p className="lead">Generate a randomized passcode so a couple can connect easily.</p><button className="primary" onClick={generatePasscode} type="button">Generate Couple Passcode</button>{data.settings.passcode && <div className="passcode-box">{data.settings.passcode}</div>}</Card><Card><p className="eyebrow">Preferences</p><label className="soft-check"><input type="checkbox" checked={data.settings.confirmLocationForRewards} onChange={(event) => updateData((previous) => ({ ...previous, settings: { ...previous.settings, confirmLocationForRewards: event.target.checked } }))} /> Reward follow-through with location confirmation</label><label className="soft-check"><input type="checkbox" checked={data.settings.blurredMemos} onChange={(event) => updateData((previous) => ({ ...previous, settings: { ...previous.settings, blurredMemos: event.target.checked } }))} /> Keep secret date memos blurred by default</label><button className="danger" onClick={() => { if (window.confirm("Clear all saved app data?")) { localStorage.removeItem(STORAGE_KEY); setData(defaultData); } }} type="button">Clear Local Data</button></Card></section>;
+    return (
+      <section className="screen two-column">
+        <Card>
+          <Settings size={42} />
+          <p className="eyebrow">Settings</p>
+          <h2>Couple connection</h2>
+          <p className="lead">One person generates a code. The other person types that code into the partner code box.</p>
+          <button className="primary" onClick={generatePasscode} type="button"><RefreshCw size={18} /> Generate My Code</button>
+          {data.settings.passcode ? (
+            <>
+              <div className="passcode-box">{data.settings.passcode}</div>
+              <button className="ghost-button inline" onClick={copyPasscode} type="button"><Copy size={16} /> Copy My Code</button>
+            </>
+          ) : <Empty>No code generated yet.</Empty>}
+        </Card>
+
+        <Card>
+          <Link2 size={42} />
+          <p className="eyebrow">Partner Code</p>
+          <h2>Add partner code</h2>
+          <p className="lead">This is the missing box. Your partner enters the code here, then taps connect.</p>
+          <input value={partnerEntry} onChange={(event) => setPartnerEntry(event.target.value.toUpperCase())} placeholder="Enter partner code" maxLength={8} />
+          <button className="primary" onClick={connectPartner} type="button"><Link2 size={18} /> Connect Partner</button>
+          {data.settings.connected ? <p className="connected-box">✅ Connected locally • {data.settings.connectedAt}</p> : <p className="muted">Not connected yet.</p>}
+          {data.settings.connected && <button className="ghost-button" onClick={disconnectPartner} type="button">Disconnect</button>}
+        </Card>
+
+        <Card>
+          <p className="eyebrow">Preferences</p>
+          <label className="soft-check"><input type="checkbox" checked={data.settings.confirmLocationForRewards} onChange={(event) => updateData((previous) => ({ ...previous, settings: { ...previous.settings, confirmLocationForRewards: event.target.checked } }))} /> Reward follow-through with location confirmation</label>
+          <label className="soft-check"><input type="checkbox" checked={data.settings.blurredMemos} onChange={(event) => updateData((previous) => ({ ...previous, settings: { ...previous.settings, blurredMemos: event.target.checked } }))} /> Keep secret date memos blurred by default</label>
+          <button className="danger" onClick={() => { if (window.confirm("Clear all saved app data?")) { localStorage.removeItem(STORAGE_KEY); setData(defaultData); } }} type="button">Clear Local Data</button>
+        </Card>
+      </section>
+    );
   }
 
   const screens = { home: renderHome, add: renderAdd, love: renderLove, plans: renderPlans, messages: renderMessages, media: renderMedia, timeline: renderTimeline, coach: renderCoach, conflict: renderConflict, chores: renderChores, vault: renderVault, profile: renderProfile, settings: renderSettings };
 
-  return <div className="or-app"><style>{styles}</style>{toast && <div className="toast">{toast}</div>}<header className="topbar"><button className="icon-button" onClick={() => setMenuOpen(true)} type="button"><MenuIcon /></button><div className="brand"><h1>Our Reset</h1><p>Jamesha + Justin</p></div><button className="icon-button notification-button" onClick={() => go("timeline")} type="button"><Sparkles />{notifications > 0 && <span>{notifications}</span>}</button></header>{menuOpen && <Card className="menu-card"><div className="section-head compact"><div><p className="eyebrow">Menu</p><h3>Tools</h3></div><button className="icon-button" onClick={() => setMenuOpen(false)} type="button"><X /></button></div><div className="admin-grid"><button onClick={() => go("vault")} type="button"><Lock size={18} /> Vault</button><button onClick={() => go("settings")} type="button"><Settings size={18} /> Settings</button></div></Card>}<main className="main">{(screens[activeTab] || renderHome)()}</main><nav className="bottom-nav"><button className={activeTab === "home" ? "active" : ""} onClick={() => go("home")} type="button"><Home /><span>Home</span></button><button className={activeTab === "timeline" ? "active" : ""} onClick={() => go("timeline")} type="button"><CalendarDays /><span>Timeline</span></button><button className={activeTab === "add" ? "active" : ""} onClick={() => go("add")} type="button"><Plus /><span>Add</span></button><button className={activeTab === "messages" ? "active" : ""} onClick={() => go("messages")} type="button"><MessageCircle /><span>Messages</span></button><button className={activeTab === "profile" ? "active" : ""} onClick={() => go("profile")} type="button"><User /><span>Profile</span></button></nav></div>;
+  return (
+    <div className="or-app">
+      <style>{styles}</style>
+      {toast && <div className="toast">{toast}</div>}
+      <header className="topbar">
+        <button className="icon-button" onClick={() => setMenuOpen(true)} type="button"><MenuIcon /></button>
+        <div className="brand"><h1>Our Reset</h1><p>Jamesha + Justin</p></div>
+        <button className="icon-button notification-button" onClick={() => go("timeline")} type="button"><Sparkles />{notifications > 0 && <span>{notifications}</span>}</button>
+      </header>
+      {menuOpen && (
+        <Card className="menu-card">
+          <div className="section-head compact"><div><p className="eyebrow">Menu</p><h3>Tools</h3></div><button className="icon-button" onClick={() => setMenuOpen(false)} type="button"><X /></button></div>
+          <div className="admin-grid"><button onClick={() => go("vault")} type="button"><Lock size={18} /> Vault</button><button onClick={() => go("settings")} type="button"><Settings size={18} /> Settings</button></div>
+        </Card>
+      )}
+      <main className="main">{(screens[activeTab] || renderHome)()}</main>
+      <nav className="bottom-nav">
+        <button className={`nav-home ${activeTab === "home" ? "active" : ""}`} onClick={() => go("home")} type="button"><Home size={18} /><span>Home</span></button>
+        <button className={activeTab === "timeline" ? "active" : ""} onClick={() => go("timeline")} type="button"><CalendarDays size={19} /><span>Timeline</span></button>
+        <button className={`nav-add ${activeTab === "add" ? "active" : ""}`} onClick={() => go("add")} type="button"><Plus size={25} /><span>Add</span></button>
+        <button className={activeTab === "messages" ? "active" : ""} onClick={() => go("messages")} type="button"><MessageCircle size={19} /><span>Messages</span></button>
+        <button className={activeTab === "profile" ? "active" : ""} onClick={() => go("profile")} type="button"><User size={19} /><span>Profile</span></button>
+      </nav>
+    </div>
+  );
 }
 
 const styles = `
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#fff7fa,#fff 44%,#fff4f7);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#171116}button,input,textarea,select{font:inherit;border:0;outline:0}button{cursor:pointer}input,textarea,select{width:100%;border-radius:22px;background:#fff7fa;border:1px solid #f2d4de;padding:16px 18px;color:#171116;font-weight:800}textarea{min-height:135px;resize:vertical}h2,h3,p{margin-top:0}h2{font-size:clamp(34px,5vw,64px);line-height:.98;margin-bottom:14px;font-weight:1000;color:#090609!important}h3{font-size:clamp(25px,3vw,38px);line-height:1.12;margin-bottom:12px;font-weight:950;color:#090609!important}b,strong{color:#090609!important}.or-app{min-height:100vh;padding-bottom:118px}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:22px min(6vw,70px);background:rgba(255,250,252,.86);border-bottom:1px solid #f6dce5;backdrop-filter:blur(18px)}.brand{text-align:center}.brand h1{font-family:"Brush Script MT","Segoe Script",cursive;font-weight:400;font-size:clamp(50px,7vw,104px);line-height:.85;margin:0;color:#df6b86!important}.brand p,.eyebrow{letter-spacing:.32em;text-transform:uppercase;font-weight:950;color:#8a7a82}.icon-button{position:relative;width:48px;height:48px;border-radius:999px;background:#fff;color:#df5d80;box-shadow:0 10px 28px rgba(81,49,63,.08);display:grid;place-items:center}.notification-button span{position:absolute;right:-3px;top:-3px;background:#111;color:#fff;border-radius:999px;font-size:12px;font-weight:900;padding:3px 7px}.main{width:min(1120px,92vw);margin:0 auto;padding:28px 0}.screen{display:grid;gap:22px}.two-column{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);align-items:start;gap:22px}.card{background:rgba(255,255,255,.92);border:1px solid #f1d6df;border-radius:34px;padding:clamp(22px,4vw,40px);box-shadow:0 24px 70px rgba(82,51,64,.09)}.hero-card{text-align:center;display:grid;gap:16px;place-items:center}.premium-hero{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(255,246,250,.94));position:relative;overflow:hidden}.premium-hero:before{content:"";position:absolute;inset:-120px auto auto -120px;width:260px;height:260px;border-radius:999px;background:rgba(232,83,120,.12);filter:blur(8px)}.hero-glow,.reset-icon{width:108px;height:108px;border-radius:999px;display:grid;place-items:center;background:radial-gradient(circle,#fff,#ffeaf1);color:#e65378;box-shadow:0 20px 50px rgba(232,78,120,.18)}.lead{font-size:clamp(18px,2vw,24px);line-height:1.45;color:#655960;font-weight:650}.muted,.empty{color:#74666d;font-weight:650}.mood-grid{width:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.mood-grid button,.quick-grid button,.feature-grid button{background:#fff7fa;border:1px solid #f2d4de;border-radius:26px;padding:20px;display:grid;gap:7px;text-align:left;box-shadow:0 12px 28px rgba(82,51,64,.06)}.mood-grid button{text-align:center;place-items:center}.mood-grid button span{font-size:30px}.mood-grid button.selected{background:linear-gradient(135deg,#f86f96,#e65378);color:#fff}.mood-grid button.selected b{color:#fff!important}.moment-card{display:flex;align-items:center;justify-content:space-between;gap:22px}.button-stack{display:grid;gap:10px}.primary,.reset-button{display:inline-flex;gap:8px;align-items:center;justify-content:center;border-radius:999px;padding:17px 26px;background:linear-gradient(135deg,#fb6f98,#e65378);color:white!important;font-weight:1000;box-shadow:0 18px 40px rgba(232,78,120,.23)}.ghost-button{border-radius:999px;padding:14px 20px;background:#fff1f5;color:#e65378;font-weight:950}.ghost-button.inline{display:inline-flex;align-items:center;gap:8px;justify-content:center}.danger{display:inline-flex;gap:8px;align-items:center;justify-content:center;border-radius:999px;padding:17px 26px;background:#171116;color:white!important;font-weight:1000}.pulse-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.stat-card{display:grid;place-items:center;text-align:center;gap:8px}.stat-icon{font-size:28px}.stat-card b{font-size:34px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.section-head svg{color:#e65378}.compact{margin-bottom:16px}.quick-grid,.feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.feature-grid small,.quick-grid button span{color:#766871;font-weight:700}.feature-icon{font-size:34px!important}.upgraded-add-grid button{min-height:145px;transition:transform .18s ease,box-shadow .18s ease}.upgraded-add-grid button:hover{transform:translateY(-3px);box-shadow:0 18px 38px rgba(82,51,64,.1)}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.list{display:grid;gap:14px;margin-top:10px}.item{background:#fff7fa;border:1px solid #f2d6df;border-radius:24px;padding:18px;display:grid;gap:9px}.item.done{opacity:.74}.item p{margin:0;color:#55474e}.item small{color:#766871;font-weight:800;display:flex;align-items:center;gap:5px}.item button,.item-actions button,.chips button,.mood-row button{display:inline-flex;align-items:center;gap:7px;width:max-content;border-radius:999px;background:#fff;color:#e65378;font-weight:900;padding:10px 14px;box-shadow:0 8px 18px rgba(82,51,64,.07)}.item-actions{display:flex;gap:10px;flex-wrap:wrap}.item-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.love-note.pinned{border-color:#ef97ad;background:#fff0f5}.prompt-box{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff7fa;border:1px solid #f2d4de;border-radius:24px;padding:18px;margin-bottom:16px}.prompt-box p{margin:8px 0 0;color:#55474e}.mood-row,.chips,.reaction-row{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.mood-row button.active,.reaction-row button.active{background:#e65378;color:#fff}.options-panel{margin:14px 0}.options-panel summary{cursor:pointer;background:#fff7fa;border:1px solid #f2d4de;border-radius:18px;padding:14px 16px;font-weight:950;color:#e65378}.options-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.options-grid label,.soft-check{display:flex;align-items:center;gap:10px;background:#fff7fa;border:1px solid #f2d4de;border-radius:18px;padding:14px;font-weight:900;color:#55474e}.options-grid input[type="checkbox"],.soft-check input{width:auto}.reaction-row button{background:white;border-radius:999px;padding:8px 12px}.blur-memo{filter:blur(5px);transition:.2s;user-select:none}.blur-memo:hover,.blur-memo:active{filter:blur(0);user-select:auto}.media-actions{display:grid;gap:12px}.upload-pill{display:inline-flex;align-items:center;justify-content:center;gap:10px;border-radius:999px;padding:16px 20px;background:#fff1f5;color:#e65378;font-weight:1000;cursor:pointer}.upload-pill input{display:none}.reset-card{text-align:center;display:grid;place-items:center;gap:14px}.reset-button{min-width:220px;min-height:64px;font-size:20px}.timer-panel{width:100%;background:#fff7fa;border:1px solid #f2d4de;border-radius:28px;padding:24px;margin-top:12px}.timer{font-size:72px;font-weight:1000;color:#e65378;line-height:1}.reset-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:18px}.reset-actions button{border-radius:18px;padding:15px;background:#fff;color:#e65378;font-weight:900;box-shadow:0 10px 22px rgba(82,51,64,.07)}.step-dots{display:flex;gap:8px;margin-bottom:15px}.step-dots button{width:42px;height:42px;border-radius:999px;background:#fff1f5;color:#e65378;font-weight:1000}.step-dots button.active{background:#e65378;color:#fff}.vault-card{text-align:center;display:grid;place-items:center;gap:12px}.vault-card svg{color:#e65378}.upload-tile{display:grid;place-items:center;gap:10px;min-height:220px;border:2px dashed #f0cbd6;border-radius:28px;background:#fff7fa;color:#e65378;font-weight:950;cursor:pointer}.upload-tile input{display:none}.upload-tile span{color:#74666d}.centered-actions{justify-content:center}.vault-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.vault-item{background:white;border:1px solid #f2d7df;border-radius:24px;padding:14px;display:grid;gap:8px;text-align:left}.vault-media{width:100%;aspect-ratio:1/1;border-radius:18px;overflow:hidden;background:#fff0f5;display:grid;place-items:center}.vault-media img,.vault-media video{width:100%;height:100%;object-fit:cover;display:block}.vault-media audio{width:92%}.coach-card{display:grid;gap:12px;place-items:start}.coach-card svg{color:#e65378}.coach-reply{background:#fff7fa;border:1px solid #f2d4de;border-radius:26px;padding:22px;color:#55474e;font-size:18px;line-height:1.5;font-weight:800}.chores-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.chore-button{width:100%;text-align:left;border-radius:20px;padding:18px;background:#fff7fa;color:#55474e;font-weight:950;border:1px solid #f2d6df}.chore-button.done{background:#ffeaf1;color:#e65378}.progress-line{height:14px;border-radius:999px;background:#f0e8ec;overflow:hidden}.progress-line i{display:block;height:100%;background:linear-gradient(90deg,#fb6f98,#f0b44f)}.reward-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-height:680px;overflow:auto;padding-right:6px}.reward-button{width:100%;display:flex;justify-content:space-between;align-items:center;border-radius:22px;background:#fff7fa;border:1px solid #f2d6df;padding:18px;font-weight:950;text-align:left}.profile-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.profile-grid div{background:#fff7fa;border:1px solid #f2d6df;border-radius:24px;padding:20px;display:grid;gap:6px}.profile-grid b{font-size:30px}.profile-grid span{color:#766871;font-weight:800}.menu-card{position:fixed;top:100px;left:min(6vw,70px);z-index:60;width:min(420px,90vw)}.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.admin-grid button{display:flex;align-items:center;gap:8px;border-radius:18px;background:#fff7fa;color:#e65378;padding:14px;font-weight:900}.passcode-box{font-size:46px;font-weight:1000;letter-spacing:.16em;background:#fff7fa;border:1px solid #f2d4de;border-radius:24px;padding:18px;text-align:center}.timeline-list{display:grid;gap:14px}.timeline-item{display:grid;grid-template-columns:22px 1fr;gap:12px;position:relative}.timeline-item:before{content:"";position:absolute;left:10px;top:22px;bottom:-18px;width:2px;background:#f2d4de}.timeline-item:last-child:before{display:none}.dot{width:22px;height:22px;border-radius:999px;background:#e65378;box-shadow:0 0 0 7px #fff1f5}.timeline-item>div{background:#fff7fa;border:1px solid #f2d6df;border-radius:24px;padding:18px;display:grid;gap:8px}.timeline-item p{margin:0;color:#55474e}.timeline-item small{color:#766871;font-weight:800}.toast{position:fixed;z-index:99;top:18px;left:50%;transform:translateX(-50%);background:#111;color:#fff;border-radius:999px;padding:14px 22px;font-weight:900;box-shadow:0 20px 50px rgba(0,0,0,.24)}.bottom-nav{position:fixed;left:50%;bottom:16px;z-index:50;transform:translateX(-50%);width:min(720px,94vw);display:grid;grid-template-columns:1fr 1fr 92px 1fr 1fr;align-items:end;background:rgba(255,255,255,.94);border:1px solid #f2d6df;border-radius:30px;padding:12px;box-shadow:0 22px 60px rgba(82,51,64,.16);backdrop-filter:blur(18px)}.bottom-nav button{background:transparent;color:#81747a;font-weight:950;display:grid;place-items:center;gap:5px}.bottom-nav button.active{color:#e65378}.bottom-nav button:nth-child(3){width:84px;height:84px;border-radius:999px;background:linear-gradient(135deg,#fb6f98,#e65378);color:white;transform:translateY(-24px);box-shadow:0 18px 42px rgba(232,78,120,.26)}.bottom-nav button:nth-child(3) span{color:#fff}@media(max-width:860px){.mood-grid,.quick-grid,.feature-grid,.reward-grid,.chores-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:760px){.topbar{padding:16px}.brand h1{font-size:48px}.brand p{font-size:13px}.main{width:92vw;padding-top:18px}.two-column,.mood-grid,.pulse-grid,.quick-grid,.feature-grid,.form-row,.profile-grid,.reset-actions,.options-grid,.vault-grid,.reward-grid,.chores-grid{grid-template-columns:1fr}.card{border-radius:28px}.moment-card{display:grid}.primary,.reset-button,.danger{width:100%}.bottom-nav{bottom:0;width:100%;border-radius:28px 28px 0 0}.bottom-nav span{font-size:12px}.timer{font-size:58px}.menu-card{left:5vw;top:92px}.prompt-box{display:grid}.mood-row button{width:100%}}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at top,#fff7fa,#fff 44%,#fff4f7);font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#171116}
+button,input,textarea,select{font:inherit;border:0;outline:0}
+button{cursor:pointer}
+input,textarea,select{width:100%;border-radius:22px;background:#fff7fa;border:1px solid #f2d4de;padding:16px 18px;color:#171116;font-weight:800;margin:7px 0}
+textarea{min-height:135px;resize:vertical}
+h2,h3,p{margin-top:0}
+h2{font-size:clamp(34px,5vw,64px);line-height:.98;margin-bottom:14px;font-weight:1000;color:#090609!important}
+h3{font-size:clamp(25px,3vw,38px);line-height:1.12;margin-bottom:12px;font-weight:950;color:#090609!important}
+b,strong{color:#090609!important}
+.or-app{min-height:100vh;padding-bottom:102px}
+.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:18px min(6vw,70px);background:rgba(255,250,252,.86);border-bottom:1px solid #f6dce5;backdrop-filter:blur(18px)}
+.brand{text-align:center}.brand h1{font-family:"Brush Script MT","Segoe Script",cursive;font-weight:400;font-size:clamp(46px,6vw,90px);line-height:.85;margin:0;color:#df6b86!important}.brand p,.eyebrow{letter-spacing:.32em;text-transform:uppercase;font-weight:950;color:#8a7a82}
+.icon-button{position:relative;width:48px;height:48px;border-radius:999px;background:#fff;color:#df5d80;box-shadow:0 10px 28px rgba(81,49,63,.08);display:grid;place-items:center}
+.notification-button span{position:absolute;right:-3px;top:-3px;background:#111;color:#fff;border-radius:999px;font-size:12px;font-weight:900;padding:3px 7px}
+.main{width:min(1120px,92vw);margin:0 auto;padding:28px 0}.screen{display:grid;gap:22px}.two-column{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);align-items:start;gap:22px}.card{background:rgba(255,255,255,.92);border:1px solid #f1d6df;border-radius:34px;padding:clamp(22px,4vw,40px);box-shadow:0 24px 70px rgba(82,51,64,.09)}
+.hero-card{text-align:center;display:grid;gap:16px;place-items:center}.premium-hero{background:linear-gradient(180deg,rgba(255,255,255,.98),rgba(255,246,250,.94));position:relative;overflow:hidden}.premium-hero:before{content:"";position:absolute;inset:-120px auto auto -120px;width:260px;height:260px;border-radius:999px;background:rgba(232,83,120,.12);filter:blur(8px)}
+.hero-glow,.reset-icon{width:108px;height:108px;border-radius:999px;display:grid;place-items:center;background:radial-gradient(circle,#fff,#ffeaf1);color:#e65378;box-shadow:0 20px 50px rgba(232,78,120,.18)}
+.lead{font-size:clamp(18px,2vw,24px);line-height:1.45;color:#655960;font-weight:650}.muted,.empty{color:#74666d;font-weight:650}.connected-box{background:#ecfff3;border:1px solid #bce7c9;color:#137a3a;border-radius:20px;padding:14px;font-weight:900}
+.mood-grid{width:100%;display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.mood-grid button,.quick-grid button,.feature-grid button{background:#fff7fa;border:1px solid #f2d4de;border-radius:26px;padding:20px;display:grid;gap:7px;text-align:left;box-shadow:0 12px 28px rgba(82,51,64,.06)}.mood-grid button{text-align:center;place-items:center}.mood-grid button span{font-size:30px}.mood-grid button.selected{background:linear-gradient(135deg,#f86f96,#e65378);color:#fff}.mood-grid button.selected b{color:#fff!important}
+.moment-card{display:flex;align-items:center;justify-content:space-between;gap:22px}.button-stack{display:grid;gap:10px}.primary,.reset-button{display:inline-flex;gap:8px;align-items:center;justify-content:center;border-radius:999px;padding:17px 26px;background:linear-gradient(135deg,#fb6f98,#e65378);color:white!important;font-weight:1000;box-shadow:0 18px 40px rgba(232,78,120,.23)}.ghost-button{border-radius:999px;padding:14px 20px;background:#fff1f5;color:#e65378;font-weight:950}.ghost-button.inline{display:inline-flex;align-items:center;gap:8px;justify-content:center}.danger{display:inline-flex;gap:8px;align-items:center;justify-content:center;border-radius:999px;padding:17px 26px;background:#171116;color:white!important;font-weight:1000}.pulse-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.stat-card{display:grid;place-items:center;text-align:center;gap:8px}.stat-icon{font-size:28px}.stat-card b{font-size:34px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:14px}.section-head svg{color:#e65378}.compact{margin-bottom:16px}.quick-grid,.feature-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.feature-grid small,.quick-grid button span{color:#766871;font-weight:700}.feature-icon{font-size:34px!important}.upgraded-add-grid button{min-height:145px;transition:transform .18s ease,box-shadow .18s ease}.upgraded-add-grid button:hover{transform:translateY(-3px);box-shadow:0 18px 38px rgba(82,51,64,.1)}.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}.location-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}.list{display:grid;gap:14px;margin-top:10px}.item{background:#fff7fa;border:1px solid #f2d6df;border-radius:24px;padding:18px;display:grid;gap:9px}.item img,.item video{width:100%;max-height:320px;object-fit:cover;border-radius:20px}.item audio{width:100%}.item.done{opacity:.74}.item p{margin:0;color:#55474e}.item small{color:#766871;font-weight:800;display:flex;align-items:center;gap:5px}.item button,.item-actions button,.chips button,.mood-row button{display:inline-flex;align-items:center;gap:7px;width:max-content;border-radius:999px;background:#fff;color:#e65378;font-weight:900;padding:10px 14px;box-shadow:0 8px 18px rgba(82,51,64,.07)}.item-actions{display:flex;gap:10px;flex-wrap:wrap}.item-title-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.love-note.pinned{border-color:#ef97ad;background:#fff0f5}.prompt-box{display:flex;align-items:center;justify-content:space-between;gap:16px;background:#fff7fa;border:1px solid #f2d4de;border-radius:24px;padding:18px;margin-bottom:16px}.prompt-box p{margin:8px 0 0;color:#55474e}.mood-row,.chips,.reaction-row{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}.mood-row button.active,.reaction-row button.active{background:#e65378;color:#fff}.options-panel{margin:14px 0}.options-panel summary{cursor:pointer;background:#fff7fa;border:1px solid #f2d4de;border-radius:18px;padding:14px 16px;font-weight:950;color:#e65378}.options-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.options-grid label,.soft-check{display:flex;align-items:center;gap:10px;background:#fff7fa;border:1px solid #f2d4de;border-radius:18px;padding:14px;font-weight:900;color:#55474e}.options-grid input[type="checkbox"],.soft-check input{width:auto}.reaction-row button{background:white;border-radius:999px;padding:8px 12px}.blur-memo{filter:blur(5px);transition:.2s;user-select:none}.blur-memo:hover,.blur-memo:active{filter:blur(0);user-select:auto}.media-actions{display:grid;gap:12px}.upload-pill{display:inline-flex;align-items:center;justify-content:center;gap:10px;border-radius:999px;padding:16px 20px;background:#fff1f5;color:#e65378;font-weight:1000;cursor:pointer}.upload-pill input{display:none}.reset-card{text-align:center;display:grid;place-items:center;gap:14px}.reset-button{min-width:220px;min-height:64px;font-size:20px}.timer-panel{width:100%;background:#fff7fa;border:1px solid #f2d4de;border-radius:28px;padding:24px;margin-top:12px}.timer{font-size:72px;font-weight:1000;color:#e65378;line-height:1}.step-dots{display:flex;gap:8px;margin-bottom:15px}.step-dots button{width:42px;height:42px;border-radius:999px;background:#fff1f5;color:#e65378;font-weight:1000}.step-dots button.active{background:#e65378;color:#fff}.vault-card{text-align:center;display:grid;place-items:center;gap:12px}.vault-card svg{color:#e65378}.centered-actions{justify-content:center}.vault-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.vault-item{background:white;border:1px solid #f2d7df;border-radius:24px;padding:14px;display:grid;gap:8px;text-align:left}.vault-media{width:100%;aspect-ratio:1/1;border-radius:18px;overflow:hidden;background:#fff0f5;display:grid;place-items:center}.vault-media img,.vault-media video{width:100%;height:100%;object-fit:cover;display:block}.vault-media audio{width:92%}.coach-card{display:grid;gap:12px;place-items:start}.coach-card svg{color:#e65378}.coach-reply{background:#fff7fa;border:1px solid #f2d4de;border-radius:26px;padding:22px;color:#55474e;font-size:18px;line-height:1.5;font-weight:800}.chores-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.chore-button{width:100%;text-align:left;border-radius:20px;padding:18px;background:#fff7fa;color:#55474e;font-weight:950;border:1px solid #f2d6df}.chore-button.done{background:#ffeaf1;color:#e65378}.progress-line{height:14px;border-radius:999px;background:#f0e8ec;overflow:hidden}.progress-line i{display:block;height:100%;background:linear-gradient(90deg,#fb6f98,#f0b44f)}.reward-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-height:680px;overflow:auto;padding-right:6px}.reward-button{width:100%;display:flex;justify-content:space-between;align-items:center;border-radius:22px;background:#fff7fa;border:1px solid #f2d6df;padding:18px;font-weight:950;text-align:left}.profile-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.profile-grid div{background:#fff7fa;border:1px solid #f2d6df;border-radius:24px;padding:20px;display:grid;gap:6px}.profile-grid b{font-size:30px}.profile-grid span{color:#766871;font-weight:800}.menu-card{position:fixed;top:100px;left:min(6vw,70px);z-index:60;width:min(420px,90vw)}.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.admin-grid button{display:flex;align-items:center;gap:8px;border-radius:18px;background:#fff7fa;color:#e65378;padding:14px;font-weight:900}.passcode-box{font-size:40px;font-weight:1000;letter-spacing:.16em;background:#fff7fa;border:1px solid #f2d4de;border-radius:24px;padding:18px;text-align:center;margin:14px 0}.timeline-list{display:grid;gap:14px}.timeline-item{display:grid;grid-template-columns:22px 1fr;gap:12px;position:relative}.timeline-item:before{content:"";position:absolute;left:10px;top:22px;bottom:-18px;width:2px;background:#f2d4de}.timeline-item:last-child:before{display:none}.dot{width:22px;height:22px;border-radius:999px;background:#e65378;box-shadow:0 0 0 7px #fff1f5}.timeline-item>div{background:#fff7fa;border:1px solid #f2d6df;border-radius:24px;padding:18px;display:grid;gap:8px}.timeline-item p{margin:0;color:#55474e}.timeline-item small{color:#766871;font-weight:800}.toast{position:fixed;z-index:99;top:18px;left:50%;transform:translateX(-50%);background:#111;color:#fff;border-radius:999px;padding:14px 22px;font-weight:900;box-shadow:0 20px 50px rgba(0,0,0,.24)}
+.bottom-nav{position:fixed;left:50%;bottom:14px;z-index:50;transform:translateX(-50%);width:min(520px,88vw);display:grid;grid-template-columns:1fr 1fr 72px 1fr 1fr;align-items:center;background:rgba(255,255,255,.9);border:1px solid rgba(242,214,223,.9);border-radius:999px;padding:7px 10px;box-shadow:0 12px 38px rgba(82,51,64,.14);backdrop-filter:blur(18px)}
+.bottom-nav button{background:transparent;color:#81747a;font-weight:950;display:grid;place-items:center;gap:2px;font-size:11px;min-height:42px;line-height:1}
+.bottom-nav button svg{width:18px;height:18px}.bottom-nav button.active{color:#e65378}.bottom-nav .nav-home{transform:scale(.84);opacity:.82}.bottom-nav .nav-add{width:62px;height:62px;border-radius:999px;background:linear-gradient(135deg,#fb6f98,#e65378);color:white;transform:translateY(-17px);box-shadow:0 14px 34px rgba(232,78,120,.28);font-size:11px}.bottom-nav .nav-add span,.bottom-nav .nav-add svg{color:#fff}
+@media(max-width:860px){.mood-grid,.quick-grid,.feature-grid,.reward-grid,.chores-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){.topbar{padding:14px}.brand h1{font-size:46px}.brand p{font-size:12px}.main{width:92vw;padding-top:18px}.two-column,.mood-grid,.pulse-grid,.quick-grid,.feature-grid,.form-row,.profile-grid,.options-grid,.vault-grid,.reward-grid,.chores-grid{grid-template-columns:1fr}.card{border-radius:28px}.moment-card,.prompt-box{display:grid}.primary,.reset-button,.danger{width:100%}.location-row{grid-template-columns:1fr}.bottom-nav{bottom:8px;width:94vw}.bottom-nav span{font-size:10px}.timer{font-size:58px}.menu-card{left:5vw;top:92px}.mood-row button{width:100%}}
 `;
