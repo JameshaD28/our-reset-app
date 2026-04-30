@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   CalendarDays,
   Camera,
@@ -27,8 +28,13 @@ import {
   X,
 } from "lucide-react";
 
-const STORAGE_KEY = "ourResetPremiumFunctionalV4";
+const STORAGE_KEY = "ourResetPremiumFunctionalV5";
+const CODE_KEY = "ourResetCoupleCodeV5";
 const VAULT_PIN_KEY = "ourResetVaultPinV4";
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -179,6 +185,9 @@ function StatCard({ icon, label, value }) {
 export default function App() {
   const [activeTab, setActiveTab] = useState("home");
   const [data, setData] = useState(loadData);
+  const dataRef = useRef(data);
+  const [coupleCode, setCoupleCode] = useState(() => localStorage.getItem(CODE_KEY) || "");
+  const [syncStatus, setSyncStatus] = useState(supabase ? "Ready for Supabase sync" : "Missing Supabase env keys");
   const [toast, setToast] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -236,8 +245,67 @@ export default function App() {
   );
 
   useEffect(() => {
+    dataRef.current = data;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
+
+  async function cloudSave(code, nextData) {
+    if (!supabase || !code) return;
+    setSyncStatus("Saving...");
+    const { error } = await supabase
+      .from("couple_state")
+      .upsert({ code, data: nextData, updated_at: new Date().toISOString() }, { onConflict: "code" });
+    setSyncStatus(error ? `Sync error: ${error.message}` : "Saved to cloud");
+  }
+
+  function mergeCloudData(cloudData) {
+    return {
+      ...defaultData,
+      ...(cloudData || {}),
+      settings: { ...defaultData.settings, ...(cloudData?.settings || {}) },
+    };
+  }
+
+  useEffect(() => {
+    if (!supabase || !coupleCode || !data.settings.connected) return undefined;
+    let cancelled = false;
+    async function loadCloudRoom() {
+      setSyncStatus("Loading shared room...");
+      const { data: row, error } = await supabase
+        .from("couple_state")
+        .select("data")
+        .eq("code", coupleCode)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        setSyncStatus(`Load error: ${error.message}`);
+        return;
+      }
+      if (row?.data) {
+        const merged = mergeCloudData(row.data);
+        merged.settings = { ...merged.settings, connected: true, passcode: coupleCode, enteredPartnerCode: coupleCode };
+        setData(merged);
+        setSyncStatus("Loaded shared room");
+      } else {
+        await cloudSave(coupleCode, dataRef.current);
+      }
+    }
+    loadCloudRoom();
+    const channel = supabase
+      .channel(`couple_state_${coupleCode}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "couple_state", filter: `code=eq.${coupleCode}` }, (payload) => {
+        if (!payload.new?.data) return;
+        const merged = mergeCloudData(payload.new.data);
+        merged.settings = { ...merged.settings, connected: true, passcode: coupleCode, enteredPartnerCode: coupleCode };
+        setData(merged);
+        setSyncStatus("Live synced");
+      })
+      .subscribe();
+    return () => {
+      cancelled = true;
+      supabase.removeChannel(channel);
+    };
+  }, [coupleCode, data.settings.connected]);
 
   useEffect(() => {
     if (!resetRunning) return undefined;
@@ -254,8 +322,15 @@ export default function App() {
     return () => clearInterval(timer);
   }, [resetRunning]);
 
-  function updateData(updater) {
-    setData((previous) => (typeof updater === "function" ? updater(previous) : { ...previous, ...updater }));
+  function updateData(updater, syncToCloud = true) {
+    setData((previous) => {
+      const next = typeof updater === "function" ? updater(previous) : { ...previous, ...updater };
+      const activeCode = coupleCode || next.settings?.passcode;
+      if (syncToCloud && supabase && next.settings?.connected && activeCode) {
+        cloudSave(activeCode, next);
+      }
+      return next;
+    });
   }
 
   function showToast(message) {
@@ -545,37 +620,96 @@ export default function App() {
     showToast("Vault PIN updated");
   }
 
-  function generatePasscode() {
+  async function generatePasscode() {
     const code = generateCode();
-    updateData((previous) => ({ ...previous, settings: { ...previous.settings, passcode: code, connected: false, connectedAt: "" } }));
-    setPartnerEntry("");
-    addTimeline("settings", "Couple passcode generated", `Code ${code} created in Settings.`, "");
-    showToast("Couple passcode generated");
+    const timelineItem = { id: uid("timeline"), type: "settings", title: "Couple passcode generated", text: `Code ${code} created in Settings.`, location: "", createdAt: stamp() };
+    const nextData = {
+      ...dataRef.current,
+      settings: { ...dataRef.current.settings, passcode: code, enteredPartnerCode: code, connected: true, connectedAt: stamp() },
+      timeline: [timelineItem, ...(dataRef.current.timeline || [])],
+    };
+    setPartnerEntry(code);
+    setCoupleCode(code);
+    localStorage.setItem(CODE_KEY, code);
+    if (!supabase) {
+      setData(nextData);
+      showToast("Code generated locally. Add Supabase keys for live sync.");
+      return;
+    }
+    setSyncStatus("Creating shared room...");
+    const { error: coupleError } = await supabase
+      .from("couples")
+      .upsert({ code, person_one: nextData.people?.[0] || "Jamesha", person_two: nextData.people?.[1] || "Justin" }, { onConflict: "code" });
+    if (coupleError) {
+      setSyncStatus(`Room error: ${coupleError.message}`);
+      showToast("Could not create shared room");
+      return;
+    }
+    setData(nextData);
+    await cloudSave(code, nextData);
+    showToast("Couple code generated and synced 🔗");
   }
 
   function copyPasscode() {
-    if (!data.settings.passcode) return showToast("Generate a code first");
-    navigator.clipboard?.writeText(data.settings.passcode);
+    const code = coupleCode || data.settings.passcode;
+    if (!code) return showToast("Generate a code first");
+    navigator.clipboard?.writeText(code);
     showToast("Code copied");
   }
 
-  function connectPartner() {
+  async function connectPartner() {
     const cleanEntry = partnerEntry.trim().toUpperCase();
     if (!cleanEntry) return showToast("Enter your partner code first");
-    if (!data.settings.passcode) return showToast("Generate your code first, then enter your partner code");
-    if (cleanEntry.length < 4) return showToast("Partner code is too short");
-    updateData((previous) => ({
-      ...previous,
-      settings: { ...previous.settings, enteredPartnerCode: cleanEntry, connected: true, connectedAt: stamp() },
-      timeline: [{ id: uid("timeline"), type: "connect", title: "Partner Connected", text: `Partner code ${cleanEntry} saved.`, location: "", createdAt: stamp() }, ...(previous.timeline || [])],
-    }));
-    reward(10, "Partner connected locally 🔗");
+    if (!supabase) {
+      updateData((previous) => ({
+        ...previous,
+        settings: { ...previous.settings, enteredPartnerCode: cleanEntry, passcode: cleanEntry, connected: true, connectedAt: stamp() },
+        timeline: [{ id: uid("timeline"), type: "connect", title: "Partner Connected", text: `Partner code ${cleanEntry} saved locally.`, location: "", createdAt: stamp() }, ...(previous.timeline || [])],
+      }), false);
+      setCoupleCode(cleanEntry);
+      localStorage.setItem(CODE_KEY, cleanEntry);
+      showToast("Connected locally. Add Supabase keys for live sync.");
+      return;
+    }
+    setSyncStatus("Connecting...");
+    const { data: room, error: roomError } = await supabase.from("couples").select("code").eq("code", cleanEntry).maybeSingle();
+    if (roomError) {
+      setSyncStatus(`Connect error: ${roomError.message}`);
+      showToast("Connection error");
+      return;
+    }
+    if (!room) {
+      setSyncStatus("Code not found");
+      showToast("Invalid code");
+      return;
+    }
+    const { data: cloudRow, error: stateError } = await supabase.from("couple_state").select("data").eq("code", cleanEntry).maybeSingle();
+    if (stateError) {
+      setSyncStatus(`Sync error: ${stateError.message}`);
+      showToast("Could not load shared room");
+      return;
+    }
+    const nextData = mergeCloudData(cloudRow?.data || dataRef.current);
+    nextData.settings = { ...nextData.settings, passcode: cleanEntry, enteredPartnerCode: cleanEntry, connected: true, connectedAt: stamp() };
+    nextData.timeline = [{ id: uid("timeline"), type: "connect", title: "Partner Connected", text: "This device joined the shared couple room.", location: "", createdAt: stamp() }, ...(nextData.timeline || [])];
+    setCoupleCode(cleanEntry);
+    localStorage.setItem(CODE_KEY, cleanEntry);
+    setData(nextData);
+    await cloudSave(cleanEntry, nextData);
+    setSyncStatus("Connected and synced");
+    showToast("Partner connected permanently 🔗");
   }
 
   function disconnectPartner() {
-    updateData((previous) => ({ ...previous, settings: { ...previous.settings, enteredPartnerCode: "", connected: false, connectedAt: "" } }));
+    localStorage.removeItem(CODE_KEY);
+    setCoupleCode("");
     setPartnerEntry("");
-    showToast("Partner connection cleared");
+    updateData((previous) => ({
+      ...previous,
+      settings: { ...previous.settings, enteredPartnerCode: "", passcode: "", connected: false, connectedAt: "" },
+    }), false);
+    setSyncStatus("Unlinked on this device");
+    showToast("This device was unlinked. Cloud room is still saved.");
   }
 
   function renderHome() {
@@ -926,11 +1060,11 @@ export default function App() {
           <Settings size={42} />
           <p className="eyebrow">Settings</p>
           <h2>Couple connection</h2>
-          <p className="lead">One person generates a code. The other person types that code into the partner code box.</p>
+          <p className="lead">One person generates a code. The other person enters that same code. Everything stays synced permanently until you unlink this device.</p>
           <button className="primary" onClick={generatePasscode} type="button"><RefreshCw size={18} /> Generate My Code</button>
-          {data.settings.passcode ? (
+          {(coupleCode || data.settings.passcode) ? (
             <>
-              <div className="passcode-box">{data.settings.passcode}</div>
+              <div className="passcode-box">{coupleCode || data.settings.passcode}</div><p className="muted">Sync status: {syncStatus}</p>
               <button className="ghost-button inline" onClick={copyPasscode} type="button"><Copy size={16} /> Copy My Code</button>
             </>
           ) : <Empty>No code generated yet.</Empty>}
@@ -940,18 +1074,18 @@ export default function App() {
           <Link2 size={42} />
           <p className="eyebrow">Partner Code</p>
           <h2>Add partner code</h2>
-          <p className="lead">This is the missing box. Your partner enters the code here, then taps connect.</p>
+          <p className="lead">Enter the couple code here. Once connected, messages, plans, timeline, chores, rewards, notes, vault items, and media metadata sync through Supabase.</p>
           <input value={partnerEntry} onChange={(event) => setPartnerEntry(event.target.value.toUpperCase())} placeholder="Enter partner code" maxLength={8} />
           <button className="primary" onClick={connectPartner} type="button"><Link2 size={18} /> Connect Partner</button>
-          {data.settings.connected ? <p className="connected-box">✅ Connected locally • {data.settings.connectedAt}</p> : <p className="muted">Not connected yet.</p>}
-          {data.settings.connected && <button className="ghost-button" onClick={disconnectPartner} type="button">Disconnect</button>}
+          {data.settings.connected ? <p className="connected-box">✅ Connected to cloud room {coupleCode || data.settings.passcode} • {data.settings.connectedAt}</p> : <p className="muted">Not connected yet.</p>}
+          {data.settings.connected && <button className="ghost-button" onClick={disconnectPartner} type="button">Unlink This Device</button>}
         </Card>
 
         <Card>
           <p className="eyebrow">Preferences</p>
           <label className="soft-check"><input type="checkbox" checked={data.settings.confirmLocationForRewards} onChange={(event) => updateData((previous) => ({ ...previous, settings: { ...previous.settings, confirmLocationForRewards: event.target.checked } }))} /> Reward follow-through with location confirmation</label>
           <label className="soft-check"><input type="checkbox" checked={data.settings.blurredMemos} onChange={(event) => updateData((previous) => ({ ...previous, settings: { ...previous.settings, blurredMemos: event.target.checked } }))} /> Keep secret date memos blurred by default</label>
-          <button className="danger" onClick={() => { if (window.confirm("Clear all saved app data?")) { localStorage.removeItem(STORAGE_KEY); setData(defaultData); } }} type="button">Clear Local Data</button>
+          <button className="danger" onClick={() => { if (window.confirm("Clear local data on this browser only? Cloud room stays saved.")) { localStorage.removeItem(STORAGE_KEY); setData(defaultData); } }} type="button">Clear Local Data</button>
         </Card>
       </section>
     );
